@@ -4,6 +4,12 @@
 #define WORKGROUP_SIZE 32
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
+#define RECOVERY 1
+#define GRAVITY 1
+#define WIND 1
+#define DISTANCE 30.0f
+#define TOLERANCE 0.2f
+
 layout(set = 0, binding = 0) uniform CameraBufferObject {
     mat4 view;
     mat4 proj;
@@ -27,30 +33,136 @@ struct Blade {
 // 3. Write the total number of blades remaining
 
 // The project is using vkCmdDrawIndirect to use a buffer as the arguments for a draw call
-// This is sort of an advanced feature so we've showed you what this buffer should look like
-//
-// layout(set = ???, binding = ???) buffer NumBlades {
-// 	  uint vertexCount;   // Write the number of blades remaining here
-// 	  uint instanceCount; // = 1
-// 	  uint firstVertex;   // = 0
-// 	  uint firstInstance; // = 0
-// } numBlades;
+
+layout(set = 2, binding = 0) buffer StoreBlades {
+    Blade inBlades[];
+};
+
+layout(set = 2, binding = 1) buffer CulledBlades {
+    Blade culledBlades[];
+};
+
+layout(set = 2, binding = 2) buffer NumBlades {
+    uint vertexCount;   //used atomic add to write number of blades remaining
+    uint instanceCount; // = 1
+    uint firstVertex;   // = 0
+    uint firstInstance; // = 0
+} numBlades;
 
 bool inBounds(float value, float bounds) {
     return (value >= -bounds) && (value <= bounds);
 }
 
+bool inBoundsZ(float value, float bounds) {
+    return (value >= 0.0f) && (value <= bounds);
+}
+
+bool inFrustum(vec4 p_proj) {
+    float h = p_proj.w + TOLERANCE;
+    return inBounds(p_proj.x, h) && inBounds(p_proj.y, h) && inBoundsZ(p_proj.z, h);
+}
+
 void main() {
 	// Reset the number of blades to 0
 	if (gl_GlobalInvocationID.x == 0) {
-		// numBlades.vertexCount = 0;
+		numBlades.vertexCount = 0;
 	}
 	barrier(); // Wait till all threads reach this point
 
+    Blade curr = inBlades[gl_GlobalInvocationID.x];
+    vec3 v0 = curr.v0.xyz;
+    vec3 v1 = curr.v1.xyz;
+    vec3 v2 = curr.v2.xyz;
+    vec3 up = curr.up.xyz;
+    float orientation = curr.v0.w;
+    float height = curr.v1.w;
+    float width = curr.v2.w;
+    float stiffness = curr.up.w;
+
     // TODO: Apply forces on every blade and update the vertices in the buffer
+    vec3 side = vec3(cos(orientation), 0.0f, sin(orientation));
+    vec3 front = normalize(cross(up, side));
+
+    // Recovery Force
+#if RECOVERY
+    vec3 iv2 = v0 + height * up;
+    vec3 recovery = (iv2 - v2) * stiffness;
+#else
+    vec3 recovery = vec3(0.0f);
+#endif
+
+    // Gravity Force
+#if GRAVITY
+    vec3 gE = vec3(0.0f, -9.8f, 0.0f);
+    vec3 gF = 0.25f * length(gE) * front;
+    vec3 gravity = gE + gF;
+#else
+    vec3 gravity = vec3(0.0f);
+#endif
+
+    // Wind Force
+#if WIND
+    vec3 wind = vec3(5.f, -2.f, 3.f) * sin(totalTime);
+#else
+    vec3 wind = vec3(0.0f);
+#endif
+
+    // Apply forces to v2
+    vec3 delta = (recovery + gravity + wind) * deltaTime;
+
+    v2 += delta;
+    v2 = v2 - up * min(dot(up, (v2 - v0)), 0);
+
+    float l_proj = length(v2 - v0 - up * dot((v2 - v0), up));
+    v1 = v0 + height * up * max(1.0f - l_proj / height, 0.05 * max(l_proj / height, 1.0f));
+
+    float l0 = distance(v0, v2);
+    float l1 = distance(v0, v1) + distance(v1, v2);
+    float l = (l0 + l1) * 0.5f;
+
+    float r = height / l;
+
+    vec3 corr_v1 = v0 + r * (v1 - v0);
+    vec3 corr_v2 = corr_v1 + r * (v2 - v1);
+
+    inBlades[gl_GlobalInvocationID.x].v1.xyz = corr_v1;
+    inBlades[gl_GlobalInvocationID.x].v2.xyz = corr_v2; 
 
 	// TODO: Cull blades that are too far away or not in the camera frustum and write them
 	// to the culled blades buffer
+
+    // cull blades whose side is parallel with camera forward
+    vec3 grass_Forward = normalize(vec3(camera.view * vec4(side, 0.0f)));
+    vec3 cam_Forward = normalize(vec3(camera.view * vec4(v0, 1.0f)));
+
+    if (abs(dot(cam_Forward, grass_Forward)) > 0.9f) {
+        return;
+    }
+    
+    // Frustum culling for the blade using v0, midpoint m, and v2
+    mat4 vp = camera.proj * camera.view;
+
+    // Calculate midpoint
+    vec3 midpoint = (v0 + v2) * 0.5;
+
+    // Transform points to NDC space
+    vec4 v0_proj = vp * vec4(v0, 1.0);
+    vec4 m_proj = vp * vec4(midpoint, 1.0);
+    vec4 v2_proj = vp * vec4(v2, 1.0);
+
+    // Test if any of the points are within the view frustum
+    if (!(inFrustum(v0_proj)) && !(inFrustum(m_proj)) && !(inFrustum(v2_proj))) {
+        return;
+    }
+
+    // cull blades whose distance 
+    vec3 cam_pos = vec3(camera.view * vec4(v0, 1.0f));
+    vec3 cam_up = vec3(camera.view * vec4(up, 0.0f));
+
+    float d_proj = length(cam_pos - cam_up * dot(cam_pos, cam_up));
+    if (d_proj > DISTANCE) return;
+
 	// Note: to do this, you will need to use an atomic operation to read and update numBlades.vertexCount
 	// You want to write the visible blades to the buffer without write conflicts between threads
+    culledBlades[atomicAdd(numBlades.vertexCount, 1)] = curr;
 }
