@@ -5,11 +5,58 @@
 #include "Camera.h"
 #include "Scene.h"
 #include "Image.h"
+#include <chrono>
+#include <iostream>
 
 Device* device;
 SwapChain* swapChain;
 Renderer* renderer;
 Camera* camera;
+
+// For frame rate calculation
+std::chrono::time_point<std::chrono::high_resolution_clock> lastTime = std::chrono::high_resolution_clock::now();
+int frameCount = 0;
+
+void calculateFPS() {
+    frameCount++;
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> elapsed = currentTime - lastTime;
+
+    if (elapsed.count() >= 1.0f) {
+        std::cout << "FPS: " << frameCount << std::endl;
+        frameCount = 0;
+        lastTime = currentTime;
+    }
+}
+
+// Function to display memory usage if VK_EXT_memory_budget is available
+void printMemoryUsage() {
+    VkPhysicalDeviceMemoryProperties2 memoryProperties = {};
+    memoryProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT memoryBudgetProperties = {};
+    memoryBudgetProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+    memoryProperties.pNext = &memoryBudgetProperties;
+
+    vkGetPhysicalDeviceMemoryProperties2(device->GetInstance()->GetPhysicalDevice(), &memoryProperties);
+
+    double totalUsageMB = 0;
+    double totalBudgetMB = 0;
+
+    for (uint32_t i = 0; i < memoryProperties.memoryProperties.memoryHeapCount; i++) {
+        double heapUsageMB = memoryBudgetProperties.heapUsage[i] / (1024.0 * 1024.0);
+        double heapBudgetMB = memoryBudgetProperties.heapBudget[i] / (1024.0 * 1024.0);
+
+        totalUsageMB += heapUsageMB;
+        totalBudgetMB += heapBudgetMB;
+
+        // Logging each heap's usage and budget for debugging
+        std::cout << "Heap " << i << " - Budget: " << heapBudgetMB << " MB, Usage: " << heapUsageMB << " MB\n";
+    }
+
+    double memoryUsagePercentage = (totalUsageMB / totalBudgetMB) * 100;
+    std::cout << "| Grass Rendering - Medium Density   | " << totalUsageMB << " MB (" << memoryUsagePercentage << "% of Budget) |\n";
+}
 
 namespace {
     void resizeCallback(GLFWwindow* window, int width, int height) {
@@ -143,10 +190,19 @@ int main() {
     glfwSetMouseButtonCallback(GetGLFWWindow(), mouseDownCallback);
     glfwSetCursorPosCallback(GetGLFWWindow(), mouseMoveCallback);
 
+    int count = 0;
     while (!ShouldQuit()) {
         glfwPollEvents();
         scene->UpdateTime();
         renderer->Frame();
+
+        // Output FPS and memory usage
+        /*if (count < 2) {
+            printMemoryUsage();
+            count++;
+        }*/
+        // calculateFPS();
+        
     }
 
     vkDeviceWaitIdle(device->GetVkDevice());

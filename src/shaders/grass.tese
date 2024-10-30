@@ -12,10 +12,12 @@ layout(set = 0, binding = 0) uniform CameraBufferObject {
 layout(location = 0) in vec4 tes_v1[];
 layout(location = 1) in vec4 tes_v2[];
 layout(location = 2) in vec4 tes_up[];
+layout(location = 3) in float tes_teslevel[];
 
 layout(location = 0) out vec3 fs_pos;
 layout(location = 1) out vec3 fs_nor;
 layout(location = 2) out vec2 fs_uv;
+layout(location = 3) out float fs_teslevel;
 
 void main() {
     float u = gl_TessCoord.x;
@@ -49,6 +51,7 @@ void main() {
     fs_pos = (1 - t) * c0 + t * c1;
     fs_nor = n;
     fs_uv = vec2(u,v);
+    fs_teslevel = tes_teslevel[0];
 
     gl_Position = camera.proj * camera.view * vec4(fs_pos, 1.f);
 }

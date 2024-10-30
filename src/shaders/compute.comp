@@ -9,6 +9,9 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 #define WIND 1
 #define DISTANCE 30.0f
 #define TOLERANCE 0.2f
+#define C_ORIENTATION 1
+#define C_FRUSTRUM 1
+#define C_DISTANCE 1
 
 layout(set = 0, binding = 0) uniform CameraBufferObject {
     mat4 view;
@@ -102,7 +105,7 @@ void main() {
 
     // Wind Force
 #if WIND
-    vec3 wind = vec3(5.f, -2.f, 3.f) * sin(totalTime);
+    vec3 wind = vec3(5.f, 0.f, 3.f) * sin(totalTime);
 #else
     vec3 wind = vec3(0.0f);
 #endif
@@ -132,18 +135,22 @@ void main() {
 	// to the culled blades buffer
 
     // cull blades whose side is parallel with camera forward
+#if C_ORIENTATION
     vec3 grass_Forward = normalize(vec3(camera.view * vec4(side, 0.0f)));
     vec3 cam_Forward = normalize(vec3(camera.view * vec4(v0, 1.0f)));
 
     if (abs(dot(cam_Forward, grass_Forward)) > 0.9f) {
         return;
     }
+#endif
     
     // Frustum culling for the blade using v0, midpoint m, and v2
+#if C_FRUSTRUM
     mat4 vp = camera.proj * camera.view;
 
     // Calculate midpoint
-    vec3 midpoint = (v0 + v2) * 0.5;
+    // vec3 midpoint = (v0 + v2) * 0.5;
+    vec3 midpoint = 0.25 * v0 + 0.5 * v1 + 0.25 * v2;
 
     // Transform points to NDC space
     vec4 v0_proj = vp * vec4(v0, 1.0);
@@ -154,13 +161,20 @@ void main() {
     if (!(inFrustum(v0_proj)) && !(inFrustum(m_proj)) && !(inFrustum(v2_proj))) {
         return;
     }
+#endif
 
     // cull blades whose distance 
+#if C_DISTANCE
     vec3 cam_pos = vec3(camera.view * vec4(v0, 1.0f));
     vec3 cam_up = vec3(camera.view * vec4(up, 0.0f));
 
     float d_proj = length(cam_pos - cam_up * dot(cam_pos, cam_up));
-    if (d_proj > DISTANCE) return;
+    //if (d_proj > DISTANCE) return;
+    int n = 20;
+    if (gl_GlobalInvocationID.x % n < floor(float(n) * d_proj / DISTANCE)) {
+        return;
+    }
+#endif
 
 	// Note: to do this, you will need to use an atomic operation to read and update numBlades.vertexCount
 	// You want to write the visible blades to the buffer without write conflicts between threads
