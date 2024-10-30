@@ -1,5 +1,6 @@
 Vulkan Grass Rendering
 ==================================
+<img src="img/full_demo.gif" />
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 5**
 
@@ -45,7 +46,19 @@ This project implements a grass simulation and renderer using Vulkan, based on t
 </table>
 
 2. Physics Simulation
-  * Gravity, wind, and recovery forces affecting blade movement
+<table>
+  <tr>
+    <td><img src="img/grass_noForce.png" width="600" /></td>
+    <td><img src="img/full_demo.gif"/></td>
+  </tr>
+ <tr>
+    <td><i> No forces </i></td>
+    <td><i> With Forces </i></td>
+  </tr>
+  <tr>
+    <td colspan="3" align="center"><i> Gravity, wind, and recovery forces affecting blade movement </i></td>
+  </tr>
+</table>
 
 3. Culling Optimization
 <table>
@@ -76,9 +89,6 @@ This project implements a grass simulation and renderer using Vulkan, based on t
     <td><i> Tesselation Max Distance 30 </i></td>
   </tr>
 </table>
-
-5. Final Render
-
 
 ### Performance Analysis
 #### Varying Blade Counts
